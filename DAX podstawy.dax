@@ -1,0 +1,1502 @@
+﻿--
+-- Podstawy języka DAX
+--
+
+-- Pracujemy w DAX Studio - zadajemy zapytania w języku DAX.
+-- EVALUATE - instrukcja oblicza wartość wyrażenia. Wyrażenie musi zwracać tabelę.
+
+
+-- Błąd: wyrażenie nie zwraca tabeli
+EVALUATE 13
+
+
+-- Konwersja skalara na tabelę - nawiasy klamrowe
+-- W wyniku mamy jedną kolumnę "Value"
+EVALUATE { 13 }
+
+
+-- Aby zwrócić kolumnę o określonej nazwie użyjemy
+-- konstruktora wiersza - ROW
+EVALUATE
+	ROW( "Wartość", 13 )
+
+
+-- teraz już możemy: witaj świecie DAX :)
+EVALUATE
+	{ "Hello world!" }
+
+
+EVALUATE
+	ROW( "Powitanie", "Hello world!")
+	
+
+-- zwracamy całą tabelę z modelu
+EVALUATE Geography
+
+
+-- w sumie... co potrafi EVALUATE?
+-- https://dax.guide/st/evaluate/
+
+
+/*
+
+-- Definicje obiektów do użycia w zapytaniu
+[DEFINE {  MEASURE <tableName>[<name>] = <expression> } -- miara
+        {  COLUMN <tableName>[<name>] = <expression> }  -- kolumna kalkulowana
+        {  TABLE <tableName> = <expression> }           -- tabela kalkulowana
+        {  VAR <name> = <expression>}]
+-- Zapytanie
+EVALUATE <table> 
+-- Modyfikacje wyniku zapytania
+[ORDER BY {<expression> [{ASC | DESC}]}[, …] 
+[START AT {<value>|<parameter>} [, …]]] 
+
+
+*/
+
+
+-- kusi troszeczkę poSQLować? :-)
+
+
+-- WHERE >>> FILTER
+EVALUATE 
+	FILTER( Customer, [FirstName] = "Linda" )
+
+
+-- jeszcze kilka podstaw...
+
+-- automatyczna konwersja typów danych
+EVALUATE { "10" + 2 }
+
+EVALUATE { "10" & 2 }
+
+EVALUATE { "10" / "2" }
+
+EVALUATE { DATE(2022, 5, 9) + 3 }
+
+EVALUATE { dt"2022-05-08" }
+
+-- BLANK
+EVALUATE { BLANK() }
+
+EVALUATE { ISBLANK( BLANK() ) }
+
+EVALUATE { BLANK() + 10 }
+
+EVALUATE { BLANK() * 10 }
+
+
+-- Kontruktor tabeli - przydaje się, gdy musisz zbudować 
+-- bardziej złożony filtr.
+EVALUATE
+	DATATABLE(
+		-- definicje kolumn
+		"Color", STRING,
+		"Year", INTEGER,
+		-- wiersze
+		{
+			{ "Red", 2012 },
+			{ "Blue", 2013 }
+		}
+	)
+	
+-- Obsługiwane typy danych:
+-- BOOLEAN, CURRENCY, DATETIME, DOUBLE, INTEGER, STRING
+
+
+/*
+
+	Zmienne
+	
+	wyrażenie = 
+		VAR zmienna = wyrażenie 
+		VAR zmienna2 = wyrażenie 
+		RETURN wyrażenie
+	
+	lub
+	
+	DEFINE
+		VAR zmienna = wyrażenie 
+		VAR zmienna2 = wyrażenie 
+	EVALUATE
+		wyrażenie
+
+*/
+
+
+EVALUATE
+	VAR a = 10
+	VAR b = 13
+	RETURN { a+b }
+
+
+EVALUATE
+	VAR a = 10
+	VAR b = 13
+	VAR wynik = a + b
+	RETURN { wynik }
+
+
+DEFINE
+	VAR a = 10
+	VAR b = 13
+EVALUATE
+	{ a+b }
+
+
+-- Można tworzyć skomplikowane łamańce - w wewnętrznych
+-- wyrażeniach też można stosować zmienne
+
+EVALUATE
+	VAR a = 
+		VAR x = 10
+		VAR y = 23
+		RETURN x + y
+	VAR b = NOW()
+	RETURN { a + x }
+
+
+-- Zmienne tak naprawdę są stałymi, nie można modyfikować 
+-- ich wartości
+
+
+-- błąd
+EVALUATE
+	VAR a = 10
+	VAR a = 11
+	RETURN {a}
+	
+
+-- błąd
+EVALUATE
+	VAR a = 10
+	VAR a = a + 1
+	RETURN {a}
+
+
+-- przykład użycia zmiennej - oszczędzamy na obliczeniach
+-- włącz "Server Timings" i sprawdź ile zapytań SE jest generowanych
+
+
+-- bez zmiennych
+EVALUATE
+	{
+		IF( 
+			SUM( 'Internet Sales'[OrderQuantity] ) > 50000,
+			SUM( 'Internet Sales'[OrderQuantity] ),
+			0
+		)
+	}
+	
+
+-- z użyciem zmiennych
+DEFINE
+	VAR S = SUM( 'Internet Sales'[OrderQuantity] )
+EVALUATE
+	{ IF( S > 50000, S, 0 ) }
+	
+
+
+/*
+
+	Wykonywanie zapytań analitycznych
+	filtrowanie >> grupowanie >> agregowanie
+
+	SUMMARIZECOLUMNS(
+		[kolumna grupująca],
+		[kolumna grupująca], ...,
+		[filtr],
+		[filtr],...
+		"nazwa kolumny", wyrażenie,
+		"nazwa kolumny", wyrażenie, ...
+		)
+
+	SUMMARIZECOLUMNS wraz z innymi funkcjami tablicowymi
+	(ADDCOLUMNS, SELECTCOLUMNS) pozwalają nam na swobodne
+	testowanie naszego DAX. Nie musimy się męczyć z 
+	Power BI :)
+
+*/
+
+
+/*
+
+	Odwołanie do tabeli:
+	
+		Tabela
+		'Tabela ze spacją w nazwie'
+		'Date'		<-- nazwa tabeli to słowo zastrzeżone
+		
+	Odwołanie do kolumny:
+	
+		[Kolumna]   <-- kolumna z bieżącej tabeli
+		[Kolumna ze spacją w nazwie]
+		Tabela[Kolumna]
+		'Tabela ze spacją'[Kolumna ze spacją]
+		
+	! Dobra praktyka !
+		Odwołując się do kolumny zawsze podawaj nazwę tabeli.
+		
+	Odwołanie do miary:
+	
+		[Miara]
+		Tabela[Miara]	-- poprawne ale niedobre
+
+	! Dobra praktyka !
+		Odwołując się do miary nigdy nie używaj nazwy tabeli.
+		Dzięki temu w kodzie łatwo odróżnisz miary od kolumn.
+
+*/
+
+
+-- Sprzedaż wg kolorów produktu
+-- Sprzedaż mamy w kolumnie SalesAmount. Chcemy pokazać SUMĘ
+-- dla każdego koloru.
+EVALUATE
+	SUMMARIZECOLUMNS(
+		'Product'[Color],
+		"Sales", SUM( 'Internet Sales'[SalesAmount] )
+		)
+		
+
+-- Sortowanie wyniku zapytania
+EVALUATE
+	SUMMARIZECOLUMNS(
+		'Product'[Color],
+		"Sales", SUM( 'Internet Sales'[SalesAmount] )
+		)
+ORDER BY [Sales] DESC
+
+
+-- Użycie miary zdefiniowanej w modelu. Miara [Sales]
+-- to prosta suma kolumny (jak w powyższym przykładzie).
+EVALUATE
+	SUMMARIZECOLUMNS(
+		'Product'[Color],
+		"Sales", [Sales]
+		)
+ORDER BY [Sales] DESC
+
+
+
+/* 
+
+	Kolumna kalkulowana
+	
+	- jej wartość jest obliczana w każdym wierszu
+	  wejściowej tabeli
+	- działa tu kontekst wiersza
+	- wartość jest przechowywana w modelu danych, zwiększa
+	  jego rozmiar
+	- w modelu danych obliczana w trakcie odświeżania danych
+	- tu użyjemy ADDCOLUMNS (iterator)
+	
+
+	Kontekst wiersza
+	- pojawia się podczas iteracji po wierszach tabeli
+	- nie przenosi się na inne tabele
+	- daje dostęp do bieżącego wiersza w iterowanej tabeli
+
+*/
+
+
+-- Tabela kategorii produktów
+EVALUATE 'Product Category'
+
+
+-- Kontekst wiersza w działaniu, mamy bezpośredni dostęp do wartości
+-- kolumn w bieżącym wierszu.
+EVALUATE
+	ADDCOLUMNS(
+		'Product Category',
+		"Nowa kolumna", [ProductCategoryKey] & " - " & [Product Category]
+		)
+
+
+-- inny przykład
+
+-- tabela Internet Sales
+EVALUATE 
+	'Internet Sales'
+	
+
+-- dodamy kolumnę [Margin] jako różnicę [SalesAmount] i [TotalProductCost]
+EVALUATE
+	ADDCOLUMNS(
+		'Internet Sales',
+		"Margin", [SalesAmount] - [TotalProductCost]
+		)
+
+
+-- inna, bardziej poukładana składnia
+DEFINE
+	COLUMN 'Internet Sales'[Margin] = [SalesAmount] - [TotalProductCost]
+EVALUATE
+	'Internet Sales'
+
+
+-- kolumna z DEFINE jest widoczna tylko w bieżącym zapytaniu
+
+
+-- czasem potrzebna nam jest wartość z innej tabeli...
+-- RELATED / RELATEDTABLE
+
+
+-- mamy tu id kategorii, chcielibyśmy nazwę
+EVALUATE
+	'Product Subcategory'
+
+
+-- błąd - kontekst wiersza mamy w bieżącej tabeli i nie przenosi się on na inne tabele
+DEFINE
+	COLUMN 'Product Subcategory'[CategoryName] = 'Product Category'[Product Category]
+EVALUATE
+	'Product Subcategory'
+
+
+-- użycie RELATED (uwaga! nie ma tu przejścia kontekstu)
+DEFINE
+	COLUMN 'Product Subcategory'[CategoryName] = 
+		RELATED('Product Category'[Product Category])
+EVALUATE
+	'Product Subcategory'
+
+
+-- dodajmy liczbę produktów w danej subkategorii
+-- potrzebne nam powiązane wiersze z Product - RELATEDTABLE
+-- no i trzeba je policzyć - COUNTROWS
+DEFINE
+	COLUMN 'Product Subcategory'[CategoryName] = 
+		RELATED('Product Category'[Product Category])
+	COLUMN 'Product Subcategory'[Num of Products] =
+		COUNTROWS(
+			RELATEDTABLE( 'Product' )
+			)
+EVALUATE
+	'Product Subcategory'
+
+
+-- Przykład
+-- Chcemy mieć kolumnę kalkulowaną pokazującą ilość sprzedaną dla 
+-- każdej subkategorii produktu.
+
+
+-- Dodajemy kolumnę, ADDCOLUMNS tworzy nową kolumnę
+EVALUATE
+	ADDCOLUMNS(
+		'Product Category',
+		"Sales", SUM( 'Internet Sales'[OrderQuantity] )
+		)
+		
+-- Dla każdej kategorii mamy tą samą wartość. 
+-- ADDCOLUMNS jest iteratorem, tworzy kontekst wiersza,
+-- W kontekście wiersza wiemy jaka jest bieżąca kategoria, 
+-- ale nie wchodzi ona do filtra (kontekst wiersza nie przenosi
+-- się na inne tabele)
+
+-- Co jest potrzebne?: przekształcenie kontektu (context transition)
+
+
+/*
+
+	Tabela kalkulowana
+	
+	Tabela stworzona przy pomocy formuły. Jest zapisana w modelu. Zwiększa
+	jego rozmiar.
+	Wszystkie przykłady z tego pliku mogą być formułami tabel kalkulowanych.
+	Wystarczy pominąć EVALUATE :)
+	
+
+*/
+
+
+-- Tworzenie własnej tabeli kalendarza
+
+-- CALENDARAUTO() - tworzy kalendarz obejmujący wszystkie daty w modelu
+EVALUATE
+	CALENDARAUTO()
+	
+
+-- CALENDAR() - tworzy kalendarz wg zadanych dat
+EVALUATE
+	CALENDAR( dt"2019-01-01", dt"2022-12-31" )
+	
+
+-- Daty zakresu można policzyć. Np. dla ShipDate z Internet Sales
+EVALUATE
+	{ MIN( 'Internet Sales'[ShipDate] ), MAX( 'Internet Sales'[ShipDate] ) }
+	
+
+EVALUATE
+	CALENDAR(
+		DATE( YEAR( MIN( 'Internet Sales'[ShipDate] ) ), 1, 1 ),
+		DATE( YEAR( MAX( 'Internet Sales'[ShipDate] ) ), 12, 31 )
+		)
+
+
+-- Do tabel kalkulowanych można dodawać kolumny oraz łączyć je relacjami z innymi
+-- tabelami. Łatwo się to robi w edytorze modelu.
+
+-- Tu w DAX Studio można tak:
+DEFINE 
+	TABLE Kalendarz = 	CALENDAR(
+		DATE( YEAR( MIN( 'Internet Sales'[ShipDate] ) ), 1, 1 ),
+		DATE( YEAR( MAX( 'Internet Sales'[ShipDate] ) ), 12, 31 )
+		)
+EVALUATE
+	SELECTCOLUMNS( 
+		Kalendarz, 
+		"Data", [Date],
+		"Rok", YEAR([Date])
+		)
+		
+-- Albo tak...	
+DEFINE 
+	TABLE Kalendarz = 	CALENDAR(
+		DATE( YEAR( MIN( 'Internet Sales'[ShipDate] ) ), 1, 1 ),
+		DATE( YEAR( MAX( 'Internet Sales'[ShipDate] ) ), 12, 31 )
+		)
+EVALUATE
+	ADDCOLUMNS(
+		Kalendarz,
+		"Rok", YEAR([Date])
+		)
+		
+
+
+/*
+
+	Kontekst filtra
+	- pojawia się podczas wykonywania zapytania
+	- składa się z filtrów, które są tabelami
+	- określa, które wiersze poszczególnych tabel są widoczne w trakcie
+	  wykonywania obliczeń
+	- przenosi się pomiędzy tabelami zgodnie z kierunkiem propagacji filtra
+	- możesz go modyfikować używając CALCULATE i CALCULATETABLE
+
+*/
+
+
+-- jeszcze raz proste zapytanie analityczne
+EVALUATE
+	SUMMARIZECOLUMNS(
+		'Product'[Color],
+		"Sales", SUM( 'Internet Sales'[SalesAmount] )
+		)
+
+
+-- Uwaga! SUMMARIZECOLUMNS nie zmienia kontekstu filtra.
+-- Uruchamiamy zapytanie w określonym kontekście - tutaj w DAX Studio
+-- startujemy od pustego kontekstu filtra.
+
+
+-- Dodajemy prosty kontekst filtra wykorzystując SUMMARIZECOLUMNS
+EVALUATE
+	SUMMARIZECOLUMNS(
+		'Product'[Color],
+		Geography[Country] = "Germany",
+		"Sales", SUM( 'Internet Sales'[SalesAmount] )
+		)
+-- błąd :)		
+
+
+-- W SUMMARIZECOLUMNS nie używamy predykatów jako filtrów - to muszą być tabele
+EVALUATE
+	SUMMARIZECOLUMNS(
+		'Product'[Color],
+		TREATAS( { "Germany" }, Geography[Country] ),
+		"Sales", SUM( 'Internet Sales'[SalesAmount] )
+		)
+
+/*
+
+	Filtry jednokolumnowe a wielokolumnowe
+	
+*/
+
+
+-- Zapytanie poniżej definiuje OSOBNE filtry na kolor i rok.
+DEFINE
+	VAR FiltrKolor = { "Red", "Blue" }
+	VAR FiltrRok = { 2012, 2013 }
+EVALUATE
+	SUMMARIZECOLUMNS(
+		'Product'[Color],
+		'Date'[CalendarYear],
+		TREATAS( FiltrKolor, 'Product'[Color] ),
+		TREATAS( FiltrRok, 'Date'[CalendarYear] ),
+		"Qty", [Qty]
+		)
+-- W wyniku mamy wszystkie istniejące kombinacje wartości.
+
+
+-- Zapytanie poniżej definiuje JEDEN filtr posiadający
+-- dwie kolumny: kolor i rok
+DEFINE
+	VAR Filtr1 = 
+		DATATABLE(
+			"Color", STRING,
+			"Year", INTEGER,
+			{
+				{ "Red", 2012 },
+				{ "Blue", 2013 }
+			}
+		)
+EVALUATE
+	SUMMARIZECOLUMNS(
+		'Product'[Color],
+		'Date'[CalendarYear],
+		TREATAS( Filtr1, 'Product'[Color], 'Date'[CalendarYear] ),
+		"Qty", [Qty]
+		)
+		
+
+/*
+
+	Iterator( tabela, wyrażenie )
+	- najpierw na tabelę nakładany jest bieżący kontekst filtra
+	- funkcja przechodzi przez każdy wiersz tabeli
+	- w każdym wierszu oblicza wyrażenie (w kontekście wiersza)
+	- po wyliczeniu wszystkich wyników agreguje je wg swojego wzorca
+	  (np. SUMX sumuje te wartości)
+
+*/
+
+
+-- użycie iteratora SUMX - sumuje obliczone wartości wyrażenia
+-- Dla wygody definiujemy miarę.
+DEFINE
+	MEASURE '# Measures'[Qty] =
+		SUMX(
+			'Internet Sales',   -- tabela, po której przejdzie SUMX
+			[OrderQuantity]     -- to obliczy SUMX w każdym wierszu
+		)
+EVALUATE
+	{ [Qty] }
+	
+	
+-- średnia cena sprzedaży
+DEFINE
+	MEASURE '# Measures'[AvgPrice] =
+		AVERAGEX(
+			'Internet Sales',
+			[UnitPrice]
+		)
+EVALUATE
+	{ [AvgPrice] }
+
+
+-- Zwykły agregator SUM jest w rzeczywistości iteratorem.
+
+-- Gdy piszesz:
+EVALUATE 
+	{ SUM( 'Internet Sales'[SalesAmount] ) }
+	
+-- faktycznie wywołujesz:
+EVALUATE
+	{ SUMX(
+		'Internet Sales',
+		[SalesAmount]
+		)
+	}
+
+
+-- Iteratora musisz użyć, jeśli chcesz zagregować wartości 
+-- obliczanego wyrażenia.
+
+
+-- błąd: SUM akceptuje tylko odwołanie do kolumny
+EVALUATE
+	{ SUM( 'Internet Sales'[OrderQuantity] * 'Internet Sales'[UnitPrice] ) }
+	
+
+-- musisz użyć SUMX
+EVALUATE
+	{
+		SUMX(
+			'Internet Sales',
+			[OrderQuantity] * [UnitPrice]
+		)
+	}
+	
+
+
+-- FILTER jest również iteratorem, zwraca tabelę.
+EVALUATE
+	FILTER(
+		Customer,
+		[YearlyIncome] > 150000
+		)
+
+/*
+
+	Funkcje testujące kontekst
+	Gdy chcesz wiedzieć gdzie właśnie się znajdujesz.
+	
+*/
+
+-- Zapytanie startowe
+EVALUATE
+	SUMMARIZECOLUMNS(
+		'Date'[CalendarYear],
+		'Date'[CalendarQuarter],
+		'Date'[EnglishMonthName],
+		"Qty", [Qty]
+		)
+		
+-- VALUES - wartości widoczne w kontekście filtra
+EVALUATE
+	VALUES( 'Date'[EnglishMonthName] )
+-- Widzimy wszystkie miesiące, kontekst filtra jest pusty
+
+
+-- Aby pokazać zawartość tabeli jako jedną wartość (np. aby
+-- wyświetlić w tabeli) trzeba użyć CONCATENATEX (to iterator).
+
+EVALUATE
+	{ 
+	CONCATENATEX(
+		VALUES( 'Date'[EnglishMonthName] ),
+		[EnglishMonthName],
+		UNICHAR(10)
+		)
+	}
+	
+-- Zdefiniujemy to jako miarę i wyświetlimy dla każdego okresu czasu.
+DEFINE
+	MEASURE '# Measures'[Months] =
+		CONCATENATEX(
+			VALUES( 'Date'[EnglishMonthName] ),
+			[EnglishMonthName],
+			", "
+			)
+EVALUATE
+	SUMMARIZECOLUMNS(
+		'Date'[CalendarYear],
+		'Date'[CalendarQuarter],
+		'Date'[EnglishMonthName],
+		"Qty", [Qty],
+		"Months", [Months]
+		)
+
+-- Bez miesięcy...
+DEFINE
+	MEASURE '# Measures'[Months] =
+		CONCATENATEX(
+			VALUES( 'Date'[EnglishMonthName] ),
+			[EnglishMonthName],
+			", "
+			)
+EVALUATE
+	SUMMARIZECOLUMNS(
+		'Date'[CalendarYear],
+		'Date'[CalendarQuarter],
+		"Qty", [Qty],
+		"Months", [Months]
+		)
+
+-- Tylko lata
+DEFINE
+	MEASURE '# Measures'[Months] =
+		CONCATENATEX(
+			VALUES( 'Date'[EnglishMonthName] ),
+			[EnglishMonthName],
+			", "
+			)
+EVALUATE
+	SUMMARIZECOLUMNS(
+		'Date'[CalendarYear],
+		"Qty", [Qty],
+		"Months", [Months]
+		)
+
+
+-- a wg kolorów?
+DEFINE
+	MEASURE '# Measures'[Months] =
+		CONCATENATEX(
+			VALUES( 'Date'[EnglishMonthName] ),
+			[EnglishMonthName],
+			", "
+			)
+EVALUATE
+	SUMMARIZECOLUMNS(
+		'Product'[Color],
+		"Qty", [Qty],
+		"Months", [Months]
+		)
+
+
+-- a z filtrem...
+DEFINE
+	MEASURE '# Measures'[Months] =
+		CONCATENATEX(
+			VALUES( 'Date'[EnglishMonthName] ),
+			[EnglishMonthName],
+			", "
+			)
+EVALUATE
+	SUMMARIZECOLUMNS(
+		'Product'[Color],
+		TREATAS( { 1, 2 }, 'Date'[CalendarQuarter] ),
+		"Qty", [Qty],
+		"Months", [Months]
+		)
+
+
+-- HASONEVALUE - czy mamy jedną wartość w kontekście?
+DEFINE
+	MEASURE '# Measures'[HasOneVal_Year] = HASONEVALUE( 'Date'[CalendarYear] )
+	MEASURE '# Measures'[HasOneVal_Qtr] = HASONEVALUE( 'Date'[CalendarQuarter] )
+	MEASURE '# Measures'[HasOneVal_Month] = HASONEVALUE( 'Date'[EnglishMonthName] )
+EVALUATE
+	SUMMARIZECOLUMNS(
+		'Date'[CalendarYear],
+		'Date'[CalendarQuarter],
+		'Date'[EnglishMonthName],
+		"Qty", [Qty],
+		"HasOneValue Year", [HasOneVal_Year],
+		"HasOneValue Quarter", [HasOneVal_Qtr],
+		"HasOneValue Month", [HasOneVal_Month]
+		)
+
+
+DEFINE
+	MEASURE '# Measures'[HasOneVal_Year] = HASONEVALUE( 'Date'[CalendarYear] )
+	MEASURE '# Measures'[HasOneVal_Qtr] = HASONEVALUE( 'Date'[CalendarQuarter] )
+	MEASURE '# Measures'[HasOneVal_Month] = HASONEVALUE( 'Date'[EnglishMonthName] )
+EVALUATE
+	SUMMARIZECOLUMNS(
+		'Date'[CalendarYear],
+		'Date'[CalendarQuarter],
+		"Qty", [Qty],
+		"HasOneValue Year", [HasOneVal_Year],
+		"HasOneValue Quarter", [HasOneVal_Qtr],
+		"HasOneValue Month", [HasOneVal_Month]
+		)
+
+
+DEFINE
+	MEASURE '# Measures'[HasOneVal_Year] = HASONEVALUE( 'Date'[CalendarYear] )
+	MEASURE '# Measures'[HasOneVal_Qtr] = HASONEVALUE( 'Date'[CalendarQuarter] )
+	MEASURE '# Measures'[HasOneVal_Month] = HASONEVALUE( 'Date'[EnglishMonthName] )
+EVALUATE
+	SUMMARIZECOLUMNS(
+		'Date'[CalendarYear],
+		"Qty", [Qty],
+		"HasOneValue Year", [HasOneVal_Year],
+		"HasOneValue Quarter", [HasOneVal_Qtr],
+		"HasOneValue Month", [HasOneVal_Month]
+		)
+
+
+-- Jeśli chcemy wiedzieć ile wartości jest widocznych w kontekście 
+-- wystarczy policzyć wiersze w VALUES
+DEFINE
+	MEASURE '# Measures'[Days] = COUNTROWS( VALUES( 'Date'[Date] ))
+EVALUATE
+	SUMMARIZECOLUMNS(
+		'Date'[CalendarYear],
+		'Date'[EnglishMonthName],
+		"Days", [Days]
+		)
+		
+
+-- SELECTEDVALUE -- jeśli widoczna jest jedna wartość zwróć ją,
+-- w przeciwnym razie zwróć wartość drugiego parametru
+DEFINE
+	MEASURE '# Measures'[Country] = SELECTEDVALUE( Geography[Country] )
+EVALUATE
+	SUMMARIZECOLUMNS(
+		Geography[City],
+		"Country", [Country]
+		)
+		
+DEFINE
+	MEASURE '# Measures'[Month] = SELECTEDVALUE( 'Date'[EnglishMonthName] )
+EVALUATE
+	SUMMARIZECOLUMNS(
+		'Date'[CalendarYear],
+		"Month", [Month]
+		)
+
+-- SUMMARIZECOLUMNS nie pokazuje wierszy bez wartości. Aby to zmienić
+-- użyjemy ADDMISSINGITEMS
+DEFINE
+	MEASURE '# Measures'[Month] = SELECTEDVALUE( 'Date'[EnglishMonthName] )
+EVALUATE
+	ADDMISSINGITEMS(
+		'Date'[CalendarYear],
+		SUMMARIZECOLUMNS(
+			'Date'[CalendarYear],
+			"Month", [Month]
+			),
+		'Date'[CalendarYear]
+		)
+
+
+-- Drugi parametr SELECTEDVALUE pozwala nam zwrócić wartość zastępczą.
+DEFINE
+	MEASURE '# Measures'[Month] = SELECTEDVALUE( 'Date'[EnglishMonthName], "More..." )
+EVALUATE
+	SUMMARIZECOLUMNS(
+		'Date'[CalendarYear],
+		"Month", [Month]
+		)
+
+
+-- ISFILTERED - czy kolumna jest filtrowana bezpośrednio?
+-- ISCROSSFILTERED - czy kolumna jest filtrowana pośrednio?
+
+DEFINE
+	MEASURE '# Measures'[Color IsFiltered] = ISFILTERED( 'Product'[Color] )
+	MEASURE '# Measures'[Color IsCrossFiltered] = ISCROSSFILTERED( 'Product'[Color] )
+EVALUATE
+	SUMMARIZECOLUMNS(
+		'Product'[Color],
+		"Color IsFiltered", [Color IsFiltered],
+		"Color IsCrossFiltered", [Color IsCrossFiltered]
+	)
+	
+
+-- Filtr na produkcie filtruje również kolory, więc ISCROSSFILTER zwraca prawdę
+DEFINE
+	MEASURE '# Measures'[Color IsFiltered] = ISFILTERED( 'Product'[Color] )
+	MEASURE '# Measures'[Color IsCrossFiltered] = ISCROSSFILTERED( 'Product'[Color] )
+EVALUATE
+	SUMMARIZECOLUMNS(
+		'Product'[ProductName],
+		"Color IsFiltered", [Color IsFiltered],
+		"Color IsCrossFiltered", [Color IsCrossFiltered]
+	)
+	
+
+-- Brak jakichkolwiek filtrów na produkcie, więc ISCROSSFILTER zwraca false
+DEFINE
+	MEASURE '# Measures'[Color IsFiltered] = ISFILTERED( 'Product'[Color] )
+	MEASURE '# Measures'[Color IsCrossFiltered] = ISCROSSFILTERED( 'Product'[Color] )
+EVALUATE
+	SUMMARIZECOLUMNS(
+		'Geography'[Country],
+		"Color IsFiltered", [Color IsFiltered],
+		"Color IsCrossFiltered", [Color IsCrossFiltered]
+	)
+
+
+-- Tutaj jest bezpośredni filtr na kolor.
+DEFINE
+	MEASURE '# Measures'[Color IsFiltered] = ISFILTERED( 'Product'[Color] )
+	MEASURE '# Measures'[Color IsCrossFiltered] = ISCROSSFILTERED( 'Product'[Color] )
+EVALUATE
+	SUMMARIZECOLUMNS(
+		'Geography'[Country],
+		TREATAS( { "Red" }, 'Product'[Color] ),
+		"Color IsFiltered", [Color IsFiltered],
+		"Color IsCrossFiltered", [Color IsCrossFiltered]
+	)
+
+
+-- Tutaj jest pośredni filtr na kolor.
+DEFINE
+	MEASURE '# Measures'[Color IsFiltered] = ISFILTERED( 'Product'[Color] )
+	MEASURE '# Measures'[Color IsCrossFiltered] = ISCROSSFILTERED( 'Product'[Color] )
+EVALUATE
+	SUMMARIZECOLUMNS(
+		'Geography'[Country],
+		TREATAS( { "AWC Logo Cap" }, 'Product'[ProductName] ),
+		"Color IsFiltered", [Color IsFiltered],
+		"Color IsCrossFiltered", [Color IsCrossFiltered]
+	)
+
+
+/*
+
+	Przekształcenie kontekstu
+	
+	Kontekst wiersza staje się kontekstem filtra. 
+	Dzięki temu przenosi się na inne tabele.
+	Przekształcenie kontekstu wymuszamy poprzez użycie miary
+	lub funkcji CALCULATE.
+	
+*/
+
+-- Wracamy do przykładu z sumą ilości sprzedanej.
+
+-- Dodajemy kolumnę, ADDCOLUMNS tworzy nową kolumnę
+EVALUATE
+	ADDCOLUMNS(
+		'Product Category',
+		"Sales", SUM( 'Internet Sales'[OrderQuantity] )
+		)
+
+-- Dla każdej kategorii mamy tą samą wartość. 
+-- ADDCOLUMNS jest iteratorem, tworzy kontekst wiersza,
+-- W kontekście wiersza wiemy jaka jest bieżąca kategoria, 
+-- ale nie wchodzi ona do filtra
+
+
+
+-- Tu wykonujemy przekształcenie kontekstu w ramach kolumny kalkulowanej.
+-- Używamy do tego CALCULATE.
+-- Bieżąca wartość subkategorii wchodzi do kontekstu filtra i filtruje produkty.
+DEFINE
+	COLUMN 'Product Subcategory'[CategoryName] = RELATED('Product Category'[Product Category])
+	COLUMN 'Product Subcategory'[Num of Products] =
+		CALCULATE(
+			COUNTROWS( 'Product' )
+			)
+EVALUATE
+	'Product Subcategory'
+
+
+-- co ze sprzedażą wg kategorii?
+DEFINE
+	COLUMN 'Product Category'[Sales] = SUM( 'Internet Sales'[OrderQuantity] )
+EVALUATE
+	'Product Category'
+
+
+-- użyjemy miary i jest ciekawiej... co się stało?
+DEFINE
+	COLUMN 'Product Category'[Sales] = [Qty]
+EVALUATE
+	'Product Category'
+
+
+-- każda miara użyta w kontekście wiersza dokonuje
+-- przekształcenia kontekstu.
+-- Kontekst wiersza staje się kontekstem filtra,
+-- a co za tym idzie - przenosi się na inne tabele.
+DEFINE
+	COLUMN 'Product Category'[Sales] = CALCULATE( SUM( 'Internet Sales'[OrderQuantity] ))
+EVALUATE
+	'Product Category'
+
+
+/*
+
+	CALCULATE / CALCULATETABLE
+	
+	CALCULATE( wyrażenie, filtr1, filtr2, ... )
+	
+	Zmiana kontekstu filtra
+	
+	Działanie CALCULATE
+	1. Przekształcenie aktywnego kontekstu wiersza w kontekst filtra
+	2. Obliczenie filtrów
+	3. Nałożenie nowych filtrów na model (nadpisanie lub dodanie)
+	4. Obliczenie wyrażenia
+	5. Przywrócenie oryginalnego kontekstu filtra
+
+	Filtry mogą być podane jako predykaty lub tablice.
+	
+*/
+
+
+-- Ilość sprzedana - kontekst filtra pusty (widoczny cały model).
+EVALUATE { SUM( 'Internet Sales'[OrderQuantity] ) }
+
+
+-- Ilość sprzedana - zmieniamy kontekst filtra.
+EVALUATE
+	{
+		CALCULATE(
+			SUM( 'Internet Sales'[OrderQuantity] ),
+			Product[Color] = "Blue"
+			)
+	}	
+
+
+-- W Power BI zwykle używalibyśmy miary...
+
+DEFINE
+	MEASURE '# Measures'[Qty] = SUM('Internet Sales'[OrderQuantity])
+EVALUATE
+	{ [Qty] }
+	
+
+DEFINE
+	MEASURE '# Measures'[Qty] = SUM('Internet Sales'[OrderQuantity])
+EVALUATE
+	{ 
+		CALCULATE(
+			[Qty],
+			Product[Color] = "Blue"
+			)
+	}
+	
+
+-- W modelu mamy miarę Qty
+EVALUATE { [Qty] }
+
+
+-- Ilość sprzedana wg kraju
+EVALUATE
+	SUMMARIZECOLUMNS(
+		Geography[Country],
+		"Qty", [Qty]
+		)
+
+
+-- Dodajemy do zapytania wyliczenie naszej miary "Blue"
+DEFINE
+	MEASURE '# Measures'[Qty Blue] = 
+		CALCULATE(
+			[Qty],
+			Product[Color] = "Blue"
+			)
+EVALUATE
+	SUMMARIZECOLUMNS(
+		Geography[Country],
+		"Qty", [Qty],
+		"Qty Blue", [Qty Blue]
+		)
+
+
+-- A jeśli zrobimy zestawienie wg koloru?
+DEFINE
+	MEASURE '# Measures'[Qty Blue] = 
+		CALCULATE(
+			[Qty],
+			Product[Color] = "Blue"
+			)
+EVALUATE
+	SUMMARIZECOLUMNS(
+		'Product'[Color],
+		"Qty", [Qty],
+		"Qty Blue", [Qty Blue]
+		)
+
+-- W każdym wierszu widzimy taką samą wartość (jest to wartość dla koloru Blue).
+-- W każdym wierszu mamy w kontekście inny kolor, ale miara [Qty Blue]
+-- modyfikuje ten kontekst nadpisując obecny filtr na kolor.
+
+
+-- KEEPFILTERS - nowy filtr nie nadpisze istniejącego - zostanie do niego dodany.
+DEFINE
+	MEASURE '# Measures'[Qty Blue] = 
+		CALCULATE(
+			[Qty],
+			KEEPFILTERS( Product[Color] = "Blue" )
+			)
+EVALUATE
+	SUMMARIZECOLUMNS(
+		'Product'[Color],
+		"Qty", [Qty],
+		"Qty Blue", [Qty Blue]
+		)
+
+
+-- Usunięcie filtra z określonej kolumny - ALL lub REMOVEFILTERS
+DEFINE
+	MEASURE '# Measures'[Qty All] = 
+		CALCULATE(
+			[Qty],
+			ALL( Product[Color] )
+			)
+EVALUATE
+	SUMMARIZECOLUMNS(
+		'Product'[Color],
+		"Qty", [Qty],
+		"Qty All", [Qty All]
+		)
+
+
+DEFINE
+	MEASURE '# Measures'[Qty All] = 
+		CALCULATE(
+			[Qty],
+			REMOVEFILTERS( Product[Color] )
+			)
+EVALUATE
+	SUMMARIZECOLUMNS(
+		'Product'[Color],
+		"Qty", [Qty],
+		"Qty All", [Qty All]
+		)
+
+
+-- Można więc policzyć udział procentowy ilości
+DEFINE
+	MEASURE '# Measures'[Qty All] = 
+		CALCULATE(
+			[Qty],
+			REMOVEFILTERS( Product[Color] )
+			)
+	MEASURE '# Measures'[Qty Pct] = 
+		DIVIDE(
+			[Qty],
+			[Qty All]
+			)
+EVALUATE
+	SUMMARIZECOLUMNS(
+		'Product'[Color],
+		"Qty", [Qty],
+		"Qty All", [Qty All],
+		"Qty Pct", [Qty Pct]
+		)
+
+-- Wiem... okropny format. Od formatowania jest Power BI :-)
+-- ale jeśli ktoś bardzo chce...
+DEFINE
+	MEASURE '# Measures'[Qty All] = 
+		CALCULATE(
+			[Qty],
+			REMOVEFILTERS( Product[Color] )
+			)
+	MEASURE '# Measures'[Qty Pct] = 
+		DIVIDE(
+			[Qty],
+			[Qty All]
+			)
+EVALUATE
+	SUMMARIZECOLUMNS(
+		'Product'[Color],
+		"Qty", [Qty],
+		"Qty All", [Qty All],
+		"Qty Pct", FORMAT( [Qty Pct], "Percent" )
+		)
+
+
+-- A teraz mocna funkcja -- ALLSELECTED
+-- Mamy poprzednie zapytanie, ale teraz dodajmy do niego filtr
+DEFINE
+	MEASURE '# Measures'[Qty All] = 
+		CALCULATE(
+			[Qty],
+			REMOVEFILTERS( Product[Color] )
+			)
+	MEASURE '# Measures'[Qty Pct] = 
+		DIVIDE(
+			[Qty],
+			[Qty All]
+			)
+EVALUATE
+	SUMMARIZECOLUMNS(
+		'Product'[Color],
+		TREATAS( { "Black", "Red", "Blue" }, 'Product'[Color] ),
+		"Qty", [Qty],
+		"Qty All", [Qty All],
+		"Qty Pct", FORMAT( [Qty Pct], "Percent" )
+		)
+-- Zwróćmy uwagę, że procenty nie sumują się do 100. Jest tak, ponieważ REMOVEFILTERS
+-- usuwa WSZYSTKIE filtry z koloru, zarówno ten zewnętrzny (TREATAS) jak i wewnętrzny
+-- wprowadzany przez SUMMARIZECOLUMNS.
+
+-- ALLSELECTED usuwa filtr wprowadzany przez SUMMARIZECOLUMNS, ten zewnętrzny 
+-- pozostaje.
+DEFINE
+	MEASURE '# Measures'[Qty All] = 
+		CALCULATE(
+			[Qty],
+			ALLSELECTED( Product[Color] )
+			)
+	MEASURE '# Measures'[Qty Pct] = 
+		DIVIDE(
+			[Qty],
+			[Qty All]
+			)
+EVALUATE
+	SUMMARIZECOLUMNS(
+		'Product'[Color],
+		TREATAS( { "Black", "Red", "Blue", "Multi" }, 'Product'[Color] ),
+		"Qty", [Qty],
+		"Qty All", [Qty All],
+		"Qty Pct", FORMAT( [Qty Pct], "Percent" )
+		)
+
+
+
+
+/*
+
+	Modyfikatory w CALCULATE
+	
+	Funkcje służące do dynamicznej modyfikacji relacji
+	pomiędzy tabelami.
+	
+*/
+
+
+-- USERELATIONSHIP - uaktywnienie relacji
+
+-- W tabeli Internet Sales mamy trzy daty: OrderDate, ShipDate, DueDate.
+-- W modelu mamy jedną tabelę kalendarza - Date.
+-- Pomiędzy 'Internet Sales' a 'Date' mamy trzy relacje, ale aktywna może
+-- być tylko jedna.
+
+-- aktywna relacja do OrderDate
+EVALUATE
+	SUMMARIZECOLUMNS(
+		'Date'[CalendarYear],
+		"Qty", [Qty]
+		)
+
+
+-- dynamiczna zmiana relacji - do ShipDate
+DEFINE
+	MEASURE '# Measures'[Shipped Qty] = 
+		CALCULATE(
+			[Qty],
+			USERELATIONSHIP( 'Date'[DateKey], 'Internet Sales'[ShipDateKey] )
+			)
+EVALUATE
+	SUMMARIZECOLUMNS(
+		'Date'[CalendarYear],
+		"Qty", [Qty],
+		"Shipped Qty", [Shipped Qty]
+		)
+	
+
+-- CROSSFILTER - zmiana kierunku propagacji filtra
+
+-- Dla każdego miasta: w ilu kolorach produkty kupowali klienci z tego miasta?
+EVALUATE
+	SUMMARIZECOLUMNS(
+		Geography[City],
+		"Sales", [Sales],
+		"Colors", DISTINCTCOUNT( 'Product'[Color] )
+		)
+		
+-- Wynik jest, ale trochę podejrzany... dodajmy do raportu liczbę produktów
+EVALUATE
+	SUMMARIZECOLUMNS(
+		Geography[City],
+		"Sales", [Sales],
+		"Qty", [Qty],
+		"Colors", DISTINCTCOUNT( 'Product'[Color] )
+		)
+ORDER BY [Qty]
+
+-- I już wiemy, że jest źle. Dwa produkty nie mogą być w dziesięciu kolorach.
+-- Przyczyna to brak filtrowania tabeli produktów poprzez tabelę klientów.
+-- Udrażniamy przepływ filtra 'Internet Sales' >>>> Product - CROSSFILTER
+
+EVALUATE
+	SUMMARIZECOLUMNS(
+		Geography[City],
+		"Sales", [Sales],
+		"Qty", [Qty],
+		"Colors", CALCULATE( 
+					DISTINCTCOUNT( 'Product'[Color] ),
+					CROSSFILTER(
+						'Internet Sales'[ProductKey],
+						'Product'[ProductKey],
+						BOTH
+						)
+					)
+		)
+
+
+/*
+
+	Time Intelligence
+	
+	Obliczenia w różnych perspektywach czasowych.
+	Po prostu: wylicz miarę w kontekście ustalonego zbioru dat
+	zbudowanego w odniesieniu do daty bieżącej (w kontekście filtra).
+	
+	Np. YTD - zbiór dat od 1 stycznia do daty bieżącej.
+
+	Wymagana jest obecność tabeli kalendarza w modelu.
+
+*/
+
+
+-- Najpierw zestawienie - sprzedaż wg miesięcy
+EVALUATE
+	SUMMARIZECOLUMNS(
+		'Date'[CalendarYear],
+		'Date'[EnglishMonthName],
+		"Qty", [Qty]
+		)
+
+
+-- Funkcje proste: TOTALYTD, TOTALQTD, TOTALMTD
+EVALUATE
+	SUMMARIZECOLUMNS(
+		'Date'[CalendarYear],
+		'Date'[EnglishMonthName],
+		"Qty", [Qty],
+		"YTD", TOTALYTD( [Qty], 'Date'[Date] ),
+		"QTD", TOTALQTD( [Qty], 'Date'[Date] )
+		)
+
+
+-- Pozostałe funkcje z tej grupy generują zbiór dat
+-- na potrzeby CALCULATE
+EVALUATE
+	SUMMARIZECOLUMNS(
+		'Date'[CalendarYear],
+		'Date'[EnglishMonthName],
+		"Qty", [Qty],
+		"Qty LY", CALCULATE(
+					[Qty],
+					SAMEPERIODLASTYEAR( 'Date'[Date] )
+					)
+	)
+
+
+EVALUATE
+	SUMMARIZECOLUMNS(
+		'Date'[CalendarYear],
+		'Date'[EnglishMonthName],
+		"Qty", [Qty],
+		"Prev Year", CALCULATE(
+					[Qty],
+					PREVIOUSYEAR( 'Date'[Date] )
+					)
+				)
+
+
+EVALUATE
+	SUMMARIZECOLUMNS(
+		'Date'[CalendarYear],
+		'Date'[EnglishMonthName],
+		"Qty", [Qty],
+		"Next Year", CALCULATE(
+					[Qty],
+					NEXTYEAR( 'Date'[Date] )
+					)
+				)
+
+
+EVALUATE
+	SUMMARIZECOLUMNS(
+		'Date'[CalendarYear],
+		'Date'[EnglishMonthName],
+		"Qty", [Qty],
+		"Prev Month", CALCULATE(
+					[Qty],
+					PREVIOUSMONTH( 'Date'[Date] )
+					)
+				)
+
+
+-- Funkcje Time Intelligence zwracają tablicę dat
+EVALUATE
+	SUMMARIZECOLUMNS(
+		'Date'[CalendarYear],
+		'Date'[EnglishMonthName],
+		"Qty", [Qty],
+		"Prev Month", COUNTROWS( PREVIOUSMONTH( 'Date'[Date] ))
+		)
+		
+
+-- Ostatnia data w bieżącym kontekście - LASTDATE
+-- Zwróćmy uwagę na 2014 January. Ostatnia data to 31 stycznia, ale tego dnia nie ma sprzedaży.
+EVALUATE
+	SUMMARIZECOLUMNS(
+		'Date'[CalendarYear],
+		'Date'[EnglishMonthName],
+		"Qty", [Qty],
+		"LastDate", LASTDATE( 'Date'[Date] ),
+		"LastDate Qty", CALCULATE( [Qty], LASTDATE( 'Date'[Date] ) )
+		)
+
+
+-- LASTNONBLANK - znajdziemy ostatnią datę w kontekście, na którą mamy sprzedaż.
+EVALUATE
+	SUMMARIZECOLUMNS(
+		'Date'[CalendarYear],
+		'Date'[EnglishMonthName],
+		"Qty", [Qty],
+		"LastDate", LASTNONBLANK( 'Date'[Date], [Qty] ),
+		"LastDate Qty", CALCULATE( [Qty], LASTNONBLANK( 'Date'[Date], [Qty] ) )
+		)
+
+
+-- Proste funkcje przesunięcia dat
+EVALUATE
+	SUMMARIZECOLUMNS(
+		'Date'[Date],
+		"Plus7Day", DATEADD( VALUES( 'Date'[Date] ), 7, DAY),
+		)
+
+EVALUATE
+	SUMMARIZECOLUMNS(
+		'Date'[Date],
+		"Plus7Day", DATEADD( VALUES( 'Date'[Date] ), -7, DAY)
+		)
+
+
+-- Funkcje Time Intelligence działają na datach obecnych w tabeli
+-- kalendarza. DATEADD nie zwróci daty nieistniejącej w kalendarzu.
+
+-- Pierwszym parametrem DATEADD jest TABLICA dat, a nie pojedyncza data.
+
+-- Definiujemy miarę, która zwróci nam tekst zawierający daty z tabeli
+EVALUATE
+	SUMMARIZECOLUMNS(
+		'Date'[CalendarYear],
+		'Date'[WeekNumberOfYear],
+		"Qty", [Qty],
+		"Daty", CONCATENATEX(
+					VALUES( 'Date'[Date] ),
+					[Date],
+					UNICHAR(10),
+					[Date] 
+					)
+		)
+
+-- Dla zorganizowania kodu ciąg dat zdefiniujemy jako miarę w zapytaniu.
+DEFINE
+	MEASURE '# Measures'[Daty] = CONCATENATEX(
+					VALUES( 'Date'[Date] ),
+					[Date],
+					UNICHAR(10),
+					[Date] 
+					) 
+EVALUATE
+	SUMMARIZECOLUMNS(
+		'Date'[CalendarYear],
+		'Date'[WeekNumberOfYear],
+		"Qty", [Qty],
+		"Daty", [Daty]
+		)
+
+
+-- A teraz dodamy nową miarę przesuwając daty o 14 dni
+DEFINE
+	MEASURE '# Measures'[Daty] = CONCATENATEX(
+					VALUES( 'Date'[Date] ),
+					[Date],
+					UNICHAR(10),
+					[Date] 
+					) 
+EVALUATE
+	SUMMARIZECOLUMNS(
+		'Date'[CalendarYear],
+		'Date'[WeekNumberOfYear],
+		"Qty", [Qty],
+		"Daty", [Daty],
+		"Daty plus 14", CALCULATE( [Daty], DATEADD( VALUES('Date'[Date]), 14, DAY ) )
+		)
+-- jak widać DATEADD przesunął wszystkie daty w kontekście
+
+
+-- O co więc chodzi z tym całym Time Intelligence?
+-- O to, żeby zbudować właściwą tabelę z datami na potrzeby filtra CALCULATE!
+
+
+-- DATESBETWEEN - przydatna funkcja
+EVALUATE
+	DATESBETWEEN( 'Date'[Date],  NOW(), NOW() + 7 )
+-- pusto, bo w 'Date' nie ma dzisiejszej daty i 7 następnych...
+
+
+DEFINE
+	VAR DataStart = dt"2013-05-09"
+EVALUATE
+	DATESBETWEEN( 'Date'[Date],  DataStart - 29, DataStart )
+
+
+-- inna pożyteczna funkcja DATESINPERIOD
+EVALUATE
+	DATESINPERIOD( 'Date'[Date], dt"2013-05-09", 1, MONTH )
+	
+
+-- DAX jest piękny
+-- Warto poznać go bardziej...
+
+
